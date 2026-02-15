@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Shiftclip ",
+  "description": "Shiftclip",
+  "permissions": ["clipboardRead", "clipboardWrite", "storage"],
+  "version": "1.0",
+  "action": {
+    "default_icon": {
+      "16": "icon16.png"
+    },
+    "default_popup": "sidepanel.html",
+    "default_title": "Shiftclip"
+  },
+  "background": { "service_worker": "service-worker.js" }
+}
