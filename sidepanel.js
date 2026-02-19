@@ -14,6 +14,12 @@ tailwind.config = {
   },
 };
 
+// Check for fullscreen mode
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get("mode") === "fullscreen") {
+  document.documentElement.classList.add("fullscreen");
+}
+
 // Theme Toggle
 const themeToggleBtn = document.getElementById("theme-toggle");
 const html = document.documentElement;
@@ -24,10 +30,10 @@ let isLocked = localStorage.getItem("shiftclip_locked") === "true";
 function updateLockIcon() {
   if (!lockBtn) return;
   if (isLocked) {
-    lockBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`;
+    lockBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg><span>Unlock</span>`;
     lockBtn.classList.add("text-primary");
   } else {
-    lockBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>`;
+    lockBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg><span>Lock</span>`;
     lockBtn.classList.remove("text-primary");
   }
 }
@@ -38,6 +44,7 @@ if (lockBtn) {
     localStorage.setItem("shiftclip_locked", isLocked);
     updateLockIcon();
     renderColumns();
+    showToast(isLocked ? "App Locked" : "App Unlocked");
   });
   updateLockIcon();
 }
@@ -53,12 +60,66 @@ if (themeToggleBtn) {
       "theme",
       html.classList.contains("dark") ? "dark" : "light",
     );
+    showToast(
+      html.classList.contains("dark")
+        ? "Dark Mode Enabled"
+        : "Light Mode Enabled",
+    );
+  });
+}
+
+// View Options
+const viewDefaultBtn = document.getElementById("view-default");
+const viewFullscreenBtn = document.getElementById("view-fullscreen");
+
+function setView(viewName) {
+  localStorage.setItem("preferred_view", viewName);
+  showToast(`Switched to ${viewName} View`);
+
+  const extensionUrl = chrome.runtime.getURL("sidepanel.html");
+
+  if (viewName === "Default") {
+    chrome.sidePanel
+      .setPanelBehavior({ openPanelOnActionClick: true })
+      .catch(console.error);
+    chrome.action.setPopup({ popup: "" }).catch(console.error);
+    chrome.windows.getCurrent((window) => {
+      chrome.sidePanel.open({ windowId: window.id }).catch(console.error);
+    });
+  } else if (viewName === "Fullscreen") {
+    chrome.tabs.create({ url: extensionUrl + "?mode=fullscreen" });
+  }
+}
+
+if (viewDefaultBtn)
+  viewDefaultBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setView("Default");
+  });
+if (viewFullscreenBtn)
+  viewFullscreenBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setView("Fullscreen");
+  });
+
+// Settings Menu
+const settingsBtn = document.getElementById("settings-btn");
+const settingsMenu = document.getElementById("settings-menu");
+
+if (settingsBtn && settingsMenu) {
+  settingsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    settingsMenu.classList.toggle("hidden");
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!settingsBtn.contains(e.target) && !settingsMenu.contains(e.target)) {
+      settingsMenu.classList.add("hidden");
+    }
   });
 }
 
 // Dropdown functionality
-const addBtn = document.getElementById("add-btn");
-const addDropdown = document.getElementById("add-dropdown");
 const addFolderBtn = document.getElementById("add-folder-btn");
 const addClipBtn = document.getElementById("add-clip-btn");
 
@@ -142,28 +203,11 @@ function updateTooltipPosition(e) {
   customTooltip.style.top = `${e.clientY + 10}px`;
 }
 
-if (addBtn && addDropdown) {
-  addBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    addDropdown.classList.toggle("hidden");
-  });
-
-  document.addEventListener("click", (e) => {
-    if (
-      !addDropdown.classList.contains("hidden") &&
-      !addBtn.contains(e.target) &&
-      !addDropdown.contains(e.target)
-    ) {
-      addDropdown.classList.add("hidden");
-    }
-  });
-
-  document.addEventListener("click", (e) => {
-    if (contextMenu && !contextMenu.contains(e.target)) {
-      contextMenu.classList.add("hidden");
-    }
-  });
-}
+document.addEventListener("click", (e) => {
+  if (contextMenu && !contextMenu.contains(e.target)) {
+    contextMenu.classList.add("hidden");
+  }
+});
 
 // Data & State
 let fileSystem = [];
@@ -206,18 +250,19 @@ function getTargetChildren() {
 
 if (addFolderBtn) {
   addFolderBtn.addEventListener("click", () => {
-    addDropdown.classList.add("hidden");
-    if (folderModal) {
-      folderNameInput.value = "";
-      folderModal.classList.remove("hidden");
-      folderNameInput.focus();
-    }
+    const name = "New Folder";
+    getTargetChildren().push({
+      id: Date.now().toString(),
+      type: "folder",
+      name,
+      children: [],
+    });
+    saveData();
   });
 }
 
 if (addClipBtn) {
   addClipBtn.addEventListener("click", () => {
-    addDropdown.classList.add("hidden");
     editingItem = null; // Reset editing state
     if (clipModal) {
       clipSubjectInput.value = "";
@@ -488,6 +533,46 @@ function moveItemToLevel(sourcePath, targetLevelPath) {
   saveData();
 }
 
+function enableInlineRename(row, item) {
+  const nameSpan =
+    row.querySelector("span.text-\\[15px\\]") || row.querySelector("span");
+  if (!nameSpan) return;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = item.name;
+  input.className =
+    "bg-transparent text-[15px] flex-1 min-w-0 text-gray-900 dark:text-white focus:outline-none border-b border-primary mx-1";
+
+  let isSaving = false;
+  const save = () => {
+    if (isSaving) return;
+    isSaving = true;
+    const newName = input.value.trim();
+    if (newName) {
+      item.name = newName;
+      saveData();
+    } else {
+      renderColumns();
+    }
+  };
+
+  input.addEventListener("click", (ev) => ev.stopPropagation());
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      save();
+    } else if (ev.key === "Escape") {
+      isSaving = true;
+      renderColumns();
+    }
+  });
+  input.addEventListener("blur", save);
+
+  nameSpan.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
 function showContextMenu(e, item, path) {
   if (!contextMenu) return;
 
@@ -538,10 +623,9 @@ function showContextMenu(e, item, path) {
   contextMenu.querySelector("#ctx-edit").onclick = () => {
     contextMenu.classList.add("hidden");
     if (item.type === "folder") {
-      const newName = prompt("Rename folder:", item.name);
-      if (newName) {
-        item.name = newName;
-        saveData();
+      const row = e.target.closest(".item-row");
+      if (row) {
+        enableInlineRename(row, item);
       }
     } else {
       editingItem = item;
@@ -604,7 +688,7 @@ function renderBreadcrumbs() {
     const btn = document.createElement("button");
     btn.className = "hover:text-white transition-colors";
     btn.textContent =
-      item.name.length > 10 ? item.name.substring(0, 10) + "..." : item.name;
+      item.name.length > 25 ? item.name.substring(0, 25) + "..." : item.name;
     const path = selectedPath.slice(0, i + 1);
     btn.onclick = () => {
       selectedPath = path;
@@ -734,6 +818,13 @@ function renderColumn(items, depth, isActive) {
       row.addEventListener("mousemove", updateTooltipPosition);
     }
 
+    row.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      if (item.type === "folder") {
+        enableInlineRename(row, item);
+      }
+    });
+
     row.addEventListener("dragstart", (e) => {
       e.stopPropagation();
       e.dataTransfer.setData(
@@ -797,14 +888,14 @@ function renderColumn(items, depth, isActive) {
     let iconHtml;
     if (item.type === "folder") {
       const color = item.color || "white";
-      iconHtml = `<img src="./assets/darkThemedfolder/${color}folder.png" class="icon ${color === "white" ? "dark:invert-0 invert" : ""}">`;
+      iconHtml = `<img src="./assets/darkThemedfolder/${color}folder.png" class="icon ${color === "white" ? "dark:invert-0 invert" : ""} mt-[2px]">`;
     } else {
-      iconHtml = `<span class="icon icon-doc text-gray-500 dark:text-white/60"></span>`;
+      iconHtml = `<span class="icon icon-doc text-gray-500 dark:text-white/60 mt-[2px]"></span>`;
     }
 
     const arrow =
       item.type === "folder"
-        ? '<img src="./assets/arrow_dark.png" class="w-4 h-4 ml-2 opacity-30 dark:invert-0 invert">'
+        ? '<img src="./assets/arrow_dark.png" class="w-4 h-4 ml-2 opacity-30 dark:invert-0 invert mt-[3px]">'
         : "";
     row.innerHTML = `${iconHtml}<span class="text-[15px] flex-1 break-words text-gray-900 dark:text-white">${item.name}</span>${optionsBtn}${arrow}`;
 
@@ -821,6 +912,76 @@ function renderColumn(items, depth, isActive) {
 
 // Initial render
 renderColumns();
+
+// Backup and Restore functionality
+const backupBtn = document.getElementById("backup-btn");
+const restoreBtn = document.getElementById("restore-btn");
+const restoreFileInput = document.getElementById("restore-file-input");
+
+if (backupBtn) {
+  backupBtn.addEventListener("click", () => {
+    const data = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: fileSystem,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `swiftclip-backup-${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast("Backup downloaded successfully");
+    if (settingsMenu) settingsMenu.classList.add("hidden");
+  });
+}
+
+if (restoreBtn && restoreFileInput) {
+  restoreBtn.addEventListener("click", () => {
+    restoreFileInput.click();
+  });
+
+  restoreFileInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target.result);
+        let restoredData;
+
+        // Handle both wrapped format (with version/exportedAt) and raw array format
+        if (parsed.data && Array.isArray(parsed.data)) {
+          restoredData = parsed.data;
+        } else if (Array.isArray(parsed)) {
+          restoredData = parsed;
+        } else {
+          throw new Error("Invalid backup format");
+        }
+
+        if (confirm("This will replace all your current data. Continue?")) {
+          fileSystem = restoredData;
+          selectedPath = [];
+          saveData();
+          showToast("Data restored successfully");
+        }
+      } catch (err) {
+        console.error("Restore error:", err);
+        showToast("Failed to restore: Invalid backup file");
+      }
+      if (settingsMenu) settingsMenu.classList.add("hidden");
+    };
+    reader.readAsText(file);
+    // Reset input so same file can be selected again
+    restoreFileInput.value = "";
+  });
+}
 
 // Debug helper: Run resetApp() in the console to clear storage
 window.resetApp = () => {
