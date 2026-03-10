@@ -94,34 +94,68 @@ if (fontSizeSlider) {
 }
 
 // View Options
-const viewDefaultBtn = document.getElementById("view-default");
 const viewFullscreenBtn = document.getElementById("view-fullscreen");
 
-function setView(viewName) {
-  localStorage.setItem("preferred_view", viewName);
-  showToast(`Switched to ${viewName} View`);
-
-  const extensionUrl = chrome.runtime.getURL("popup.html");
-
-  if (viewName === "Default") {
-    chrome.sidePanel
-      .catch(console.error);
-    chrome.action.setPopup({ popup: "popup.html" }).catch(console.error);
-  } else if (viewName === "Fullscreen") {
-    chrome.tabs.create({ url: extensionUrl + "?mode=fullscreen" });
-  }
-}
-
-if (viewDefaultBtn)
-  viewDefaultBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    setView("Default");
-  });
 if (viewFullscreenBtn)
   viewFullscreenBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    setView("Fullscreen");
+    const extensionUrl = chrome.runtime.getURL("popup.html");
+    chrome.tabs.create({ url: extensionUrl + "?mode=fullscreen" });
+    showToast("Opening fullscreen mode");
   });
+
+// Tab switching
+let activeTab = "most-copied";
+const tabMostCopied = document.getElementById("tab-most-copied");
+const tabFavorites = document.getElementById("tab-favorites");
+const mostCopiedClips = document.getElementById("most-copied-clips");
+const favoritesClips = document.getElementById("favorites-clips");
+
+function switchTab(tab) {
+  activeTab = tab;
+  if (tab === "most-copied") {
+    tabMostCopied.classList.add("text-primary", "border-primary");
+    tabMostCopied.classList.remove(
+      "text-gray-500",
+      "dark:text-white/60",
+      "border-transparent",
+    );
+
+    tabFavorites.classList.remove("text-primary", "border-primary");
+    tabFavorites.classList.add(
+      "text-gray-500",
+      "dark:text-white/60",
+      "border-transparent",
+    );
+
+    mostCopiedClips.classList.remove("hidden");
+    favoritesClips.classList.add("hidden");
+    renderMostCopied();
+  } else {
+    tabFavorites.classList.add("text-primary", "border-primary");
+    tabFavorites.classList.remove(
+      "text-gray-500",
+      "dark:text-white/60",
+      "border-transparent",
+    );
+
+    tabMostCopied.classList.remove("text-primary", "border-primary");
+    tabMostCopied.classList.add(
+      "text-gray-500",
+      "dark:text-white/60",
+      "border-transparent",
+    );
+
+    favoritesClips.classList.remove("hidden");
+    mostCopiedClips.classList.add("hidden");
+    renderFavorites();
+  }
+}
+
+if (tabMostCopied)
+  tabMostCopied.addEventListener("click", () => switchTab("most-copied"));
+if (tabFavorites)
+  tabFavorites.addEventListener("click", () => switchTab("favorites"));
 
 // Settings Menu
 const settingsBtn = document.getElementById("settings-btn");
@@ -279,8 +313,16 @@ function getTargetChildren() {
 
 if (addFolderBtn) {
   addFolderBtn.addEventListener("click", () => {
-    const name = "New Folder";
-    getTargetChildren().push({
+    const children = getTargetChildren();
+    let name = "New Folder";
+    let counter = 1;
+    const existingNames = new Set(children.map((item) => item.name));
+
+    while (existingNames.has(name)) {
+      name = `New Folder ${counter}`;
+      counter++;
+    }
+    children.push({
       id: Date.now().toString(),
       type: "folder",
       name,
@@ -340,6 +382,8 @@ if (clipSaveBtn) {
           type: "clip",
           name,
           description: description || "",
+          copyCount: 0,
+          isFavorite: false,
         });
       }
       saveData();
@@ -648,8 +692,20 @@ function showContextMenu(e, item, path) {
         </div>`;
   }
 
+  let favoriteOption = "";
+  if (item.type === "clip") {
+    const isFav = !!item.isFavorite;
+    favoriteOption = `
+      <button id="ctx-favorite" class="w-full text-left px-3 py-2 text-[15px] text-gray-800 dark:text-white hover:bg-primary flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="${isFav ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${isFav ? "text-yellow-400" : ""}"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+          ${isFav ? "Unfavorite" : "Favorite"}
+      </button>
+    `;
+  }
+
   contextMenu.innerHTML = `
         ${colorOptions}
+        ${favoriteOption}
         <button id="ctx-edit" class="w-full text-left px-3 py-2 text-[15px] text-gray-800 dark:text-white hover:bg-primary flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
             Edit
@@ -668,6 +724,16 @@ function showContextMenu(e, item, path) {
       contextMenu.classList.add("hidden");
     };
   });
+
+  const favBtn = contextMenu.querySelector("#ctx-favorite");
+  if (favBtn) {
+    favBtn.onclick = () => {
+      item.isFavorite = !item.isFavorite;
+      saveData();
+      contextMenu.classList.add("hidden");
+      renderBottomPanel();
+    };
+  }
 
   contextMenu.querySelector("#ctx-edit").onclick = () => {
     contextMenu.classList.add("hidden");
@@ -751,6 +817,149 @@ function renderBreadcrumbs() {
   }
 }
 
+function renderMostCopied() {
+  const mostCopiedContainer = document.getElementById("most-copied-clips");
+  if (!mostCopiedContainer) return;
+
+  const allClips = [];
+  function recurse(items) {
+    for (const item of items) {
+      if (item.type === "clip") {
+        allClips.push(item);
+      } else if (item.type === "folder" && item.children) {
+        recurse(item.children);
+      }
+    }
+  }
+  recurse(fileSystem);
+
+  const sortedClips = allClips
+    .filter((clip) => clip.copyCount > 0)
+    .sort((a, b) => b.copyCount - a.copyCount)
+    .slice(0, 10);
+
+  mostCopiedContainer.innerHTML = "";
+
+  if (sortedClips.length === 0) {
+    mostCopiedContainer.innerHTML = `<p class="text-xs text-gray-400 dark:text-white/30 px-2">Clips you copy will appear here.</p>`;
+    return;
+  }
+
+  sortedClips.forEach((clip) => {
+    const clipWrapper = document.createElement("div");
+    clipWrapper.className =
+      "relative flex items-center bg-white dark:bg-black/20 border border-gray-300 dark:border-white/10 rounded-[15px] flex-shrink-0";
+
+    const clipButton = document.createElement("button");
+    clipButton.className =
+      "px-3 py-1.5 text-[14px] text-gray-800 dark:text-white whitespace-nowrap hover:bg-primary hover:text-white transition-colors rounded-[15px]";
+    clipButton.textContent = clip.name;
+    clipButton.title = `Copied ${clip.copyCount} times`;
+    clipButton.onclick = () => {
+      if (typeof clip.copyCount !== "number") {
+        clip.copyCount = 0;
+      }
+      clip.copyCount++;
+      navigator.clipboard
+        .writeText(clip.description || clip.content || "")
+        .then(() => showToast(`'${clip.name}' copied`))
+        .catch(console.error);
+      saveData();
+    };
+    clipWrapper.appendChild(clipButton);
+
+    if (!isLocked) {
+      const removeButton = document.createElement("button");
+      removeButton.className =
+        "absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] leading-none hover:bg-red-600 transition-colors";
+      removeButton.innerHTML = "&times;";
+      removeButton.title = "Remove from Most Copied";
+      removeButton.onclick = (e) => {
+        e.stopPropagation(); // Prevent the clipButton click event from firing
+        clip.copyCount = 0;
+        saveData();
+        renderMostCopied(); // Re-render the section to remove the clip
+      };
+      clipWrapper.appendChild(removeButton);
+    }
+
+    mostCopiedContainer.appendChild(clipWrapper);
+  });
+}
+
+function renderFavorites() {
+  const favoritesContainer = document.getElementById("favorites-clips");
+  if (!favoritesContainer) return;
+
+  const allClips = [];
+  function recurse(items) {
+    for (const item of items) {
+      if (item.type === "clip") {
+        allClips.push(item);
+      } else if (item.type === "folder" && item.children) {
+        recurse(item.children);
+      }
+    }
+  }
+  recurse(fileSystem);
+
+  const favoriteClips = allClips.filter((clip) => clip.isFavorite);
+
+  favoritesContainer.innerHTML = "";
+
+  if (favoriteClips.length === 0) {
+    favoritesContainer.innerHTML = `<p class="text-xs text-gray-400 dark:text-white/30 px-2">Add clips to favorites via context menu.</p>`;
+    return;
+  }
+
+  favoriteClips.forEach((clip) => {
+    const clipWrapper = document.createElement("div");
+    clipWrapper.className =
+      "relative flex items-center bg-white dark:bg-black/20 border border-gray-300 dark:border-white/10 rounded-[15px] flex-shrink-0";
+
+    const clipButton = document.createElement("button");
+    clipButton.className =
+      "px-3 py-1.5 text-[14px] text-gray-800 dark:text-white whitespace-nowrap hover:bg-primary hover:text-white transition-colors rounded-[15px]";
+    clipButton.textContent = clip.name;
+    clipButton.onclick = () => {
+      if (typeof clip.copyCount !== "number") {
+        clip.copyCount = 0;
+      }
+      clip.copyCount++;
+      navigator.clipboard
+        .writeText(clip.description || clip.content || "")
+        .then(() => showToast(`'${clip.name}' copied`));
+      saveData();
+    };
+    clipWrapper.appendChild(clipButton);
+
+    if (!isLocked) {
+      const removeButton = document.createElement("button");
+      removeButton.className =
+        "absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] leading-none hover:bg-red-600 transition-colors";
+      removeButton.innerHTML = "&times;";
+      removeButton.title = "Remove from Favorites";
+      removeButton.onclick = (e) => {
+        e.stopPropagation();
+        clip.isFavorite = false;
+        saveData();
+        renderFavorites();
+      };
+      clipWrapper.appendChild(removeButton);
+    }
+
+    favoritesContainer.appendChild(clipWrapper);
+  });
+}
+
+function renderBottomPanel() {
+  if (activeTab === "most-copied") {
+    renderMostCopied();
+  } else {
+    renderFavorites();
+  }
+}
+
 function renderColumns() {
   if (!columnsContainer || !previewPanel) return;
 
@@ -763,6 +972,7 @@ function renderColumns() {
   });
 
   renderBreadcrumbs();
+  renderBottomPanel();
 
   // Calculate active depth for visual indicator
   let activeDepth = 0;
@@ -920,12 +1130,18 @@ function renderColumn(items, depth, isActive) {
       selectedPath = selectedPath.slice(0, depth);
       selectedPath.push(index);
       if (item.type === "clip") {
+        if (typeof item.copyCount !== "number") {
+          item.copyCount = 0;
+        }
+        item.copyCount++;
         navigator.clipboard
           .writeText(item.description || item.content || "")
           .then(() => showToast(`Message copied`))
           .catch(console.error);
+        saveData();
+      } else {
+        renderColumns();
       }
-      renderColumns();
     };
 
     // Options Button
