@@ -105,14 +105,15 @@ if (viewFullscreenBtn)
   });
 
 // Tab switching
-let activeTab = "most-copied";
+let activeTab = localStorage.getItem("swiftclip_active_tab") || "most-copied";
 const tabMostCopied = document.getElementById("tab-most-copied");
 const tabFavorites = document.getElementById("tab-favorites");
 const mostCopiedClips = document.getElementById("most-copied-clips");
 const favoritesClips = document.getElementById("favorites-clips");
 
-function switchTab(tab) {
+function switchTab(tab, renderContent = true) {
   activeTab = tab;
+  localStorage.setItem("swiftclip_active_tab", tab);
   if (tab === "most-copied") {
     tabMostCopied.classList.add("text-primary", "border-primary");
     tabMostCopied.classList.remove(
@@ -130,7 +131,7 @@ function switchTab(tab) {
 
     mostCopiedClips.classList.remove("hidden");
     favoritesClips.classList.add("hidden");
-    renderMostCopied();
+    if (renderContent) renderMostCopied();
   } else {
     tabFavorites.classList.add("text-primary", "border-primary");
     tabFavorites.classList.remove(
@@ -148,7 +149,7 @@ function switchTab(tab) {
 
     favoritesClips.classList.remove("hidden");
     mostCopiedClips.classList.add("hidden");
-    renderFavorites();
+    if (renderContent) renderFavorites();
   }
 }
 
@@ -274,23 +275,16 @@ document.addEventListener("click", (e) => {
 
 // Data & State
 let fileSystem = [];
-try {
-  const stored = localStorage.getItem("shiftclip_data");
-  if (stored) {
-    fileSystem = JSON.parse(stored);
-  } else {
-    fileSystem = [];
-    localStorage.setItem("shiftclip_data", JSON.stringify(fileSystem));
-  }
-} catch (e) {
-  console.error("Error loading data:", e);
-}
-
 let selectedPath = []; // Array of indices representing the path
 let editingItem = null; // Track if we are editing an existing clip
 
 function saveData() {
-  localStorage.setItem("shiftclip_data", JSON.stringify(fileSystem));
+  chrome.storage.local.set({ shiftclip_data: fileSystem }, () => {
+    if (chrome.runtime.lastError) {
+      console.error("Error saving data:", chrome.runtime.lastError);
+    }
+  });
+  // We don't wait for the save to complete to update the UI
   renderColumns();
 }
 
@@ -781,7 +775,8 @@ function renderBreadcrumbs() {
   breadcrumbBar.innerHTML = "";
 
   const homeBtn = document.createElement("button");
-  homeBtn.className = "hover:text-white transition-colors";
+  homeBtn.className =
+    "hover:text-blue-500 dark:hover:text-blue-400 transition-colors";
   homeBtn.textContent = "Home";
   homeBtn.onclick = () => {
     selectedPath = [];
@@ -801,7 +796,8 @@ function renderBreadcrumbs() {
     breadcrumbBar.appendChild(separator);
 
     const btn = document.createElement("button");
-    btn.className = "hover:text-white transition-colors";
+    btn.className =
+      "hover:text-blue-500 dark:hover:text-blue-400 transition-colors";
     btn.textContent =
       item.name.length > 25 ? item.name.substring(0, 25) + "..." : item.name;
     const path = selectedPath.slice(0, i + 1);
@@ -1174,7 +1170,15 @@ function renderColumn(items, depth, isActive) {
 }
 
 // Initial render
-renderColumns();
+async function init() {
+  const result = await new Promise((resolve) =>
+    chrome.storage.local.get("shiftclip_data", resolve),
+  );
+  fileSystem = result.shiftclip_data || [];
+  switchTab(activeTab, false);
+  renderColumns();
+}
+init();
 
 // Backup and Restore functionality
 const backupBtn = document.getElementById("backup-btn");
