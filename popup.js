@@ -13,7 +13,7 @@ tailwind.config = {
     },
   },
 };
-
+// Add these globals
 // Check for fullscreen mode
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get("mode") === "fullscreen") {
@@ -278,6 +278,12 @@ let fileSystem = [];
 let selectedPath = []; // Array of indices representing the path
 let editingItem = null; // Track if we are editing an existing clip
 
+function saveSelectedPath() {
+  chrome.storage.local.set({
+    swiftclip_current_path: selectedPath,
+  });
+}
+
 function saveData() {
   chrome.storage.local.set({ shiftclip_data: fileSystem }, () => {
     if (chrome.runtime.lastError) {
@@ -337,6 +343,28 @@ if (addClipBtn) {
     }
   });
 }
+
+// Context menu auto-hide
+document.addEventListener("DOMContentLoaded", () => {
+  const contextMenu = document.getElementById("context-menu");
+
+  contextMenu.addEventListener("mouseenter", () => {
+    // Keep visible while hovering
+    contextMenu.classList.remove("hidden");
+  });
+
+  contextMenu.addEventListener("mouseleave", () => {
+    // Hide immediately when mouse leaves
+    contextMenu.classList.add("hidden");
+  });
+
+  // Also hide on click outside
+  document.addEventListener("click", (e) => {
+    if (!contextMenu.contains(e.target)) {
+      contextMenu.classList.add("hidden");
+    }
+  });
+});
 
 document.addEventListener("keydown", (e) => {
   if (["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
@@ -515,6 +543,7 @@ function renderSearchResults(results) {
 
     resultItem.addEventListener("click", () => {
       selectedPath = path;
+      saveSelectedPath();
       renderColumns();
       searchResultsContainer.innerHTML = "";
       searchResultsContainer.classList.add("hidden");
@@ -577,6 +606,7 @@ function moveItem(sourcePath, targetPath) {
     newSelectedPath[newSelectedPath.length - 1]--;
   }
   selectedPath = newSelectedPath;
+  saveSelectedPath();
 
   saveData();
 }
@@ -763,6 +793,7 @@ function showContextMenu(e, item, path) {
         }
         if (match) {
           selectedPath = path.slice(0, path.length - 1);
+          saveSelectedPath();
         }
       }
       saveData();
@@ -777,9 +808,11 @@ function renderBreadcrumbs() {
   const homeBtn = document.createElement("button");
   homeBtn.className =
     "hover:text-blue-500 dark:hover:text-blue-400 transition-colors";
-  homeBtn.textContent = "Home";
+  homeBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`;
+  homeBtn.title = "Home";
   homeBtn.onclick = () => {
     selectedPath = [];
+    saveSelectedPath();
     renderColumns();
   };
   breadcrumbBar.appendChild(homeBtn);
@@ -803,6 +836,7 @@ function renderBreadcrumbs() {
     const path = selectedPath.slice(0, i + 1);
     btn.onclick = () => {
       selectedPath = path;
+      saveSelectedPath();
       renderColumns();
     };
     breadcrumbBar.appendChild(btn);
@@ -1056,6 +1090,7 @@ function renderColumn(items, depth, isActive) {
   col.addEventListener("click", (e) => {
     if (e.target === col) {
       selectedPath = selectedPath.slice(0, depth);
+      saveSelectedPath();
       renderColumns();
     }
   });
@@ -1125,6 +1160,7 @@ function renderColumn(items, depth, isActive) {
       e.stopPropagation();
       selectedPath = selectedPath.slice(0, depth);
       selectedPath.push(index);
+      saveSelectedPath();
       if (item.type === "clip") {
         if (typeof item.copyCount !== "number") {
           item.copyCount = 0;
@@ -1132,7 +1168,7 @@ function renderColumn(items, depth, isActive) {
         item.copyCount++;
         navigator.clipboard
           .writeText(item.description || item.content || "")
-          .then(() => showToast(`Message copied`))
+          .then(() => showToast(`'${item.name}' copied`))
           .catch(console.error);
         saveData();
       } else {
@@ -1169,15 +1205,40 @@ function renderColumn(items, depth, isActive) {
   columnsContainer.insertBefore(col, previewPanel);
 }
 
-// Initial render
+function isValidPath(items, path) {
+  let current = items;
+  for (let i = 0; i < path.length; i++) {
+    const index = path[i];
+    const item = current?.[index];
+    if (!item) return false;
+    if (i < path.length - 1) {
+      if (item.type !== "folder" || !Array.isArray(item.children)) return false;
+      current = item.children;
+    }
+  }
+  return true;
+}
+
 async function init() {
   const result = await new Promise((resolve) =>
-    chrome.storage.local.get("shiftclip_data", resolve),
+    chrome.storage.local.get(
+      ["shiftclip_data", "swiftclip_current_path"],
+      resolve,
+    ),
   );
+
   fileSystem = result.shiftclip_data || [];
+
+  const savedPath = Array.isArray(result.swiftclip_current_path)
+    ? result.swiftclip_current_path
+    : [];
+
+  selectedPath = isValidPath(fileSystem, savedPath) ? savedPath : [];
+
   switchTab(activeTab, false);
   renderColumns();
 }
+
 init();
 
 // Backup and Restore functionality
