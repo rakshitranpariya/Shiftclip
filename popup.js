@@ -168,6 +168,10 @@ if (settingsBtn && settingsMenu) {
     settingsMenu.classList.toggle("hidden");
   });
 
+  settingsMenu.addEventListener("mouseleave", () => {
+    settingsMenu.classList.add("hidden");
+  });
+
   document.addEventListener("click", (e) => {
     if (!settingsBtn.contains(e.target) && !settingsMenu.contains(e.target)) {
       settingsMenu.classList.add("hidden");
