@@ -4,11 +4,11 @@ tailwind.config = {
   theme: {
     extend: {
       colors: {
-        primary: "#007aff",
+        primary: "#2b65e3",
         "mac-dark": "#1e1e1e",
         "mac-column": "#161616",
         "mac-border": "#323232",
-        "mac-selected": "#0058d1",
+        "mac-selected": "#1e4bb8",
       },
     },
   },
@@ -110,6 +110,22 @@ function renderClipboardBar() {
       navigator.clipboard.writeText(entry).then(() => showToast("Copied"));
     });
     clipboardFlapList.appendChild(chip);
+  });
+}
+
+// Mouse wheel scrolling for clipboard history bar
+const clipboardHistoryBar = document.getElementById("clipboard-history-bar");
+if (clipboardHistoryBar) {
+  clipboardHistoryBar.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    // Trackpad horizontal scroll or mouse vertical scroll
+    if (e.deltaX !== 0) {
+      // Trackpad horizontal scroll
+      clipboardHistoryBar.scrollLeft += e.deltaX > 0 ? 40 : -40;
+    } else if (e.deltaY !== 0) {
+      // Mouse vertical scroll
+      clipboardHistoryBar.scrollLeft += e.deltaY > 0 ? 40 : -40;
+    }
   });
 }
 
@@ -1304,7 +1320,7 @@ function renderColumn(items, depth, isActive) {
     "w-64 h-full flex-shrink-0 flex-shrink-0 column-border overflow-y-auto custom-scrollbar py-2 transition-colors rounded-[15px]";
 
   if (isActive) {
-    col.classList.add("border", "border-blue-200", "dark:border-primary");
+    col.classList.add("border", "border-primary");
   }
 
   col.addEventListener("dragover", (e) => {
