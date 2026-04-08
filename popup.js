@@ -26,6 +26,8 @@ const html = document.documentElement;
 const lockBtn = document.getElementById("lock-btn");
 
 let isLocked = localStorage.getItem("shiftclip_locked") === "true";
+let favoritesOrder =
+  JSON.parse(localStorage.getItem("shiftclip_favorites_order")) || [];
 
 function updateLockIcon() {
   if (!lockBtn) return;
@@ -67,6 +69,75 @@ if (themeToggleBtn) {
     );
   });
 }
+
+// Clipboard History Flap
+const clipboardFlapBtn = document.getElementById("clipboard-flap-btn");
+const clipboardFlap = document.getElementById("clipboard-flap");
+const clipboardFlapList = document.getElementById("clipboard-flap-list");
+let clipboardHistory = [];
+let lastClipboardText = null;
+
+// Poll clipboard every 1.5s and record new entries
+async function pollClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text && text.trim() && text !== lastClipboardText) {
+      lastClipboardText = text;
+      const existing = clipboardHistory.indexOf(text);
+      if (existing !== -1) clipboardHistory.splice(existing, 1);
+      clipboardHistory.unshift(text);
+      if (clipboardHistory.length > 5) clipboardHistory.length = 5;
+    }
+  } catch (_) {}
+}
+setInterval(pollClipboard, 1500);
+pollClipboard();
+
+function renderClipboardFlap() {
+  const dot = document.getElementById("clipboard-dot");
+  clipboardFlapList.innerHTML = "";
+  if (clipboardHistory.length === 0) {
+    if (dot) dot.classList.add("hidden");
+    clipboardFlapList.innerHTML = `<li class="px-3 py-2.5 text-[11px] text-gray-400 dark:text-white/30 text-center">Nothing copied yet.</li>`;
+    return;
+  }
+  if (dot) dot.classList.remove("hidden");
+  clipboardHistory.forEach((entry, idx) => {
+    const li = document.createElement("li");
+    li.className =
+      "flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-700 dark:text-white/80 hover:bg-primary/10 dark:hover:bg-primary/10 hover:text-primary cursor-pointer group" +
+      (idx === 0 ? "" : " border-t border-gray-100 dark:border-white/5");
+    li.innerHTML = `
+      <span class="w-4 h-4 flex-shrink-0 flex items-center justify-center rounded-full bg-gray-100 dark:bg-white/10 text-[9px] font-bold text-gray-400 dark:text-white/40 group-hover:bg-primary group-hover:text-white transition-colors">${idx + 1}</span>
+      <span class="truncate flex-1">${entry.replace(/</g, "&lt;")}</span>
+    `;
+    li.title = entry;
+    li.addEventListener("click", () => {
+      navigator.clipboard.writeText(entry).then(() => {
+        showToast("Copied");
+        clipboardFlap.classList.add("hidden");
+      });
+    });
+    clipboardFlapList.appendChild(li);
+  });
+}
+
+if (clipboardFlapBtn) {
+  clipboardFlapBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isHidden = clipboardFlap.classList.contains("hidden");
+    if (isHidden) {
+      renderClipboardFlap();
+      clipboardFlap.classList.remove("hidden");
+    } else {
+      clipboardFlap.classList.add("hidden");
+    }
+  });
+}
+
+document.addEventListener("click", () => {
+  if (clipboardFlap) clipboardFlap.classList.add("hidden");
+});
 
 // Font Size Slider
 const fontSizeSlider = document.getElementById("font-size-slider");
@@ -654,6 +725,99 @@ function moveItemToLevel(sourcePath, targetLevelPath) {
   saveData();
 }
 
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false;
+  return a.every((val, index) => val === b[index]);
+}
+
+function findPath(item, items = fileSystem, currentPath = []) {
+  for (let i = 0; i < items.length; i++) {
+    const path = [...currentPath, i];
+    if (items[i] === item) {
+      return path;
+    }
+    if (items[i].type === "folder" && items[i].children) {
+      const found = findPath(item, items[i].children, path);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function reorderItem(sourcePath, targetIndex) {
+  const parent = getParentArray(sourcePath);
+  if (!parent) return;
+  const sourceIndex = sourcePath[sourcePath.length - 1];
+  if (sourceIndex === targetIndex) return;
+  const item = parent.splice(sourceIndex, 1)[0];
+  let insertIndex = targetIndex;
+  if (sourceIndex < targetIndex) {
+    insertIndex--;
+  }
+  parent.splice(insertIndex, 0, item);
+  // Update selectedPath
+  if (
+    selectedPath.length === sourcePath.length &&
+    arraysEqual(selectedPath.slice(0, -1), sourcePath.slice(0, -1))
+  ) {
+    if (selectedPath[selectedPath.length - 1] === sourceIndex) {
+      selectedPath[selectedPath.length - 1] = insertIndex;
+    }
+  }
+  saveSelectedPath();
+  saveData();
+}
+
+// Move item from any source to a specific index in a target folder (or root).
+// targetParentPath: path to the parent level (e.g. selectedPath.slice(0, depth))
+// targetIndex: index position to insert at within that level
+function moveItemToIndex(sourcePath, targetParentPath, targetIndex) {
+  // Prevent moving into self or children
+  if (sourcePath.length <= targetParentPath.length) {
+    let isPrefix = true;
+    for (let i = 0; i < sourcePath.length; i++) {
+      if (sourcePath[i] !== targetParentPath[i]) {
+        isPrefix = false;
+        break;
+      }
+    }
+    if (isPrefix) return;
+  }
+
+  const sourceParent = getParentArray(sourcePath);
+  if (!sourceParent) return;
+  const sourceIndex = sourcePath[sourcePath.length - 1];
+  const item = sourceParent[sourceIndex];
+
+  // Resolve target array
+  let targetArray;
+  if (targetParentPath.length === 0) {
+    targetArray = fileSystem;
+  } else {
+    let current = fileSystem;
+    for (let i = 0; i < targetParentPath.length; i++) {
+      const node = current[targetParentPath[i]];
+      if (!node || node.type !== "folder") return;
+      current = node.children;
+    }
+    targetArray = current;
+  }
+
+  // Same parent — use reorderItem logic for correct index adjustment
+  if (sourceParent === targetArray) {
+    reorderItem(sourcePath, targetIndex);
+    return;
+  }
+
+  // Cross-folder: remove from source, insert at target index
+  sourceParent.splice(sourceIndex, 1);
+  const clampedIndex = Math.min(targetIndex, targetArray.length);
+  targetArray.splice(clampedIndex, 0, item);
+
+  saveSelectedPath();
+  saveData();
+}
+
 function enableInlineRename(row, item) {
   const nameSpan =
     row.querySelector("span.text-\\[15px\\]") || row.querySelector("span");
@@ -757,6 +921,17 @@ function showContextMenu(e, item, path) {
   if (favBtn) {
     favBtn.onclick = () => {
       item.isFavorite = !item.isFavorite;
+      const path = findPath(item);
+      if (item.isFavorite) {
+        favoritesOrder.push(path);
+      } else {
+        const index = favoritesOrder.findIndex((p) => arraysEqual(p, path));
+        if (index !== -1) favoritesOrder.splice(index, 1);
+      }
+      localStorage.setItem(
+        "shiftclip_favorites_order",
+        JSON.stringify(favoritesOrder),
+      );
       saveData();
       contextMenu.classList.add("hidden");
       renderBottomPanel();
@@ -925,31 +1100,112 @@ function renderFavorites() {
   const favoritesContainer = document.getElementById("favorites-clips");
   if (!favoritesContainer) return;
 
-  const allClips = [];
-  function recurse(items) {
-    for (const item of items) {
-      if (item.type === "clip") {
-        allClips.push(item);
+  const favoriteData = [];
+  function recurse(items, path) {
+    items.forEach((item, index) => {
+      const currentPath = [...path, index];
+      if (item.type === "clip" && item.isFavorite) {
+        favoriteData.push({ item, path: currentPath });
       } else if (item.type === "folder" && item.children) {
-        recurse(item.children);
+        recurse(item.children, currentPath);
       }
-    }
+    });
   }
-  recurse(fileSystem);
+  recurse(fileSystem, []);
 
-  const favoriteClips = allClips.filter((clip) => clip.isFavorite);
+  if (favoritesOrder.length === 0 && favoriteData.length > 0) {
+    favoritesOrder = favoriteData.map((f) => f.path);
+    localStorage.setItem(
+      "shiftclip_favorites_order",
+      JSON.stringify(favoritesOrder),
+    );
+  }
+
+  favoriteData.sort((a, b) => {
+    const aIndex = favoritesOrder.findIndex(p => arraysEqual(p, a.path));
+    const bIndex = favoritesOrder.findIndex(p => arraysEqual(p, b.path));
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+    return aIndex - bIndex;
+  });
 
   favoritesContainer.innerHTML = "";
 
-  if (favoriteClips.length === 0) {
+  if (favoriteData.length === 0) {
     favoritesContainer.innerHTML = `<p class="text-xs text-gray-400 dark:text-white/30 px-2">Add clips to favorites via context menu.</p>`;
     return;
   }
 
-  favoriteClips.forEach((clip) => {
+  const fragment = document.createDocumentFragment();
+
+  // insertBeforePath: path of the item this drop zone is before, or null for trailing
+  function makeFavDropZone(insertBeforePath) {
+    const dropZone = document.createElement("div");
+    dropZone.className = "drop-zone w-3 self-stretch flex justify-center items-center cursor-grab";
+    const line = document.createElement("div");
+    line.className = "w-0.5 bg-white opacity-0 transition-opacity h-full min-h-[28px]";
+    dropZone.appendChild(line);
+
+    dropZone.addEventListener("dragover", (e) => {
+      if (isLocked) return;
+      e.preventDefault();
+      e.stopPropagation();
+      line.style.opacity = "1";
+    });
+
+    dropZone.addEventListener("dragleave", () => {
+      line.style.opacity = "0";
+    });
+
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      line.style.opacity = "0";
+      if (isLocked) return;
+      try {
+        const data = JSON.parse(e.dataTransfer.getData("text/plain"));
+        if (data.type === "favorite" && data.path) {
+          const sourceIdx = favoritesOrder.findIndex(p => arraysEqual(p, data.path));
+          if (sourceIdx === -1) return;
+          // Remove the source
+          favoritesOrder.splice(sourceIdx, 1);
+          // Find where to insert now (after removal)
+          let insertIdx;
+          if (insertBeforePath === null) {
+            insertIdx = favoritesOrder.length;
+          } else {
+            insertIdx = favoritesOrder.findIndex(p => arraysEqual(p, insertBeforePath));
+            if (insertIdx === -1) insertIdx = favoritesOrder.length;
+          }
+          favoritesOrder.splice(insertIdx, 0, data.path);
+          localStorage.setItem(
+            "shiftclip_favorites_order",
+            JSON.stringify(favoritesOrder),
+          );
+          renderFavorites();
+        }
+      } catch (err) {
+        console.error("Drop error", err);
+      }
+    });
+
+    return dropZone;
+  }
+
+  favoriteData.forEach(({ item: clip, path }) => {
+    fragment.appendChild(makeFavDropZone(path));
+
     const clipWrapper = document.createElement("div");
     clipWrapper.className =
-      "relative flex items-center bg-white dark:bg-black/20 border border-gray-300 dark:border-white/10 rounded-[15px] flex-shrink-0";
+      "relative flex items-center bg-white dark:bg-black/20 border border-gray-300 dark:border-white/10 rounded-[15px] flex-shrink-0 my-1";
+    clipWrapper.draggable = !isLocked;
+
+    clipWrapper.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData(
+        "text/plain",
+        JSON.stringify({ type: "favorite", path }),
+      );
+    });
 
     const clipButton = document.createElement("button");
     clipButton.className =
@@ -976,14 +1232,23 @@ function renderFavorites() {
       removeButton.onclick = (e) => {
         e.stopPropagation();
         clip.isFavorite = false;
+        const path = findPath(clip);
+        const index = favoritesOrder.findIndex((p) => arraysEqual(p, path));
+        if (index !== -1) favoritesOrder.splice(index, 1);
+        localStorage.setItem(
+          "shiftclip_favorites_order",
+          JSON.stringify(favoritesOrder),
+        );
         saveData();
         renderFavorites();
       };
       clipWrapper.appendChild(removeButton);
     }
 
-    favoritesContainer.appendChild(clipWrapper);
+    fragment.appendChild(clipWrapper);
   });
+
+  favoritesContainer.appendChild(fragment);
 }
 
 function renderBottomPanel() {
@@ -1084,7 +1349,9 @@ function renderColumn(items, depth, isActive) {
     try {
       const data = JSON.parse(e.dataTransfer.getData("text/plain"));
       if (data && data.path) {
-        moveItemToLevel(data.path, selectedPath.slice(0, depth));
+        const targetParentPath = selectedPath.slice(0, depth);
+        moveItemToIndex(data.path, targetParentPath, items.length);
+        renderColumns();
       }
     } catch (err) {
       console.error("Drop error", err);
@@ -1099,11 +1366,50 @@ function renderColumn(items, depth, isActive) {
     }
   });
 
+  const fragment = document.createDocumentFragment();
+
   items.forEach((item, index) => {
+    const dropZone = document.createElement("div");
+    dropZone.className = "drop-zone h-2 flex justify-center items-center";
+    const line = document.createElement("div");
+    line.className = "h-0.5 bg-white opacity-0 transition-opacity w-full";
+    dropZone.appendChild(line);
+
+    dropZone.addEventListener("dragover", (e) => {
+      if (isLocked) return;
+      e.preventDefault();
+      e.stopPropagation();
+      line.style.opacity = "1";
+    });
+
+    dropZone.addEventListener("dragleave", () => {
+      line.style.opacity = "0";
+    });
+
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      line.style.opacity = "0";
+      if (isLocked) return;
+      try {
+        const data = JSON.parse(e.dataTransfer.getData("text/plain"));
+        if (data && data.path) {
+          const targetParentPath = selectedPath.slice(0, depth);
+          moveItemToIndex(data.path, targetParentPath, index);
+          renderColumns();
+        }
+      } catch (err) {
+        console.error("Drop error", err);
+      }
+    });
+
+    fragment.appendChild(dropZone);
+
     const row = document.createElement("div");
     const isSelected = selectedPath[depth] === index;
     row.className = `item-row ${isSelected ? "selected" : ""} group relative rounded-[15px]`;
     row.draggable = !isLocked;
+
     if (item.type === "clip" && item.description) {
       row.addEventListener("mouseenter", () =>
         showTooltip(row, item.description),
@@ -1120,6 +1426,7 @@ function renderColumn(items, depth, isActive) {
 
     row.addEventListener("dragstart", (e) => {
       e.stopPropagation();
+      row.style.opacity = "0.4";
       e.dataTransfer.setData(
         "text/plain",
         JSON.stringify({
@@ -1127,6 +1434,10 @@ function renderColumn(items, depth, isActive) {
         }),
       );
       e.dataTransfer.effectAllowed = "move";
+    });
+
+    row.addEventListener("dragend", () => {
+      row.style.opacity = "";
     });
 
     row.addEventListener("dragover", (e) => {
@@ -1154,6 +1465,7 @@ function renderColumn(items, depth, isActive) {
         const data = JSON.parse(e.dataTransfer.getData("text/plain"));
         if (data && data.path) {
           moveItem(data.path, [...selectedPath.slice(0, depth), index]);
+          renderColumns();
         }
       } catch (err) {
         console.error("Drop error", err);
@@ -1203,8 +1515,48 @@ function renderColumn(items, depth, isActive) {
       e.stopPropagation();
       showContextMenu(e, item, [...selectedPath.slice(0, depth), index]);
     });
-    col.appendChild(row);
+
+    fragment.appendChild(row);
   });
+
+  // Trailing drop zone — allows dragging an item to the end of the list
+  const trailingDropZone = document.createElement("div");
+  trailingDropZone.className = "drop-zone h-2 flex justify-center items-center";
+  const trailingLine = document.createElement("div");
+  trailingLine.className = "h-0.5 bg-white opacity-0 transition-opacity w-full";
+  trailingDropZone.appendChild(trailingLine);
+
+  trailingDropZone.addEventListener("dragover", (e) => {
+    if (isLocked) return;
+    e.preventDefault();
+    e.stopPropagation();
+    trailingLine.style.opacity = "1";
+  });
+
+  trailingDropZone.addEventListener("dragleave", () => {
+    trailingLine.style.opacity = "0";
+  });
+
+  trailingDropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    trailingLine.style.opacity = "0";
+    if (isLocked) return;
+    try {
+      const data = JSON.parse(e.dataTransfer.getData("text/plain"));
+      if (data && data.path) {
+        const targetParentPath = selectedPath.slice(0, depth);
+        moveItemToIndex(data.path, targetParentPath, items.length);
+        renderColumns();
+      }
+    } catch (err) {
+      console.error("Drop error", err);
+    }
+  });
+
+  fragment.appendChild(trailingDropZone);
+
+  col.appendChild(fragment);
 
   columnsContainer.insertBefore(col, previewPanel);
 }

@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Design / source files
+*.af
+*.af~lock~
+*.pages
+*.sketch
+*.fig
+
+# Extension build artifacts
+dist/
+*.zip
+*.crx
+*.pem
+
+# Claude Code
+CLAUDE.md
+
+# Logs
+*.log
+
+# Environment / secrets
+.env
+.env.*
+*.key
+*.pem
+*.p12
