@@ -70,14 +70,11 @@ if (themeToggleBtn) {
   });
 }
 
-// Clipboard History Flap
-const clipboardFlapBtn = document.getElementById("clipboard-flap-btn");
-const clipboardFlap = document.getElementById("clipboard-flap");
+// Clipboard History (inline bar)
 const clipboardFlapList = document.getElementById("clipboard-flap-list");
-let clipboardHistory = [];
-let lastClipboardText = null;
+let clipboardHistory = JSON.parse(localStorage.getItem("shiftclip_clipboard_history") || "[]");
+let lastClipboardText = clipboardHistory[0] || null;
 
-// Poll clipboard every 1.5s and record new entries
 async function pollClipboard() {
   try {
     const text = await navigator.clipboard.readText();
@@ -86,58 +83,35 @@ async function pollClipboard() {
       const existing = clipboardHistory.indexOf(text);
       if (existing !== -1) clipboardHistory.splice(existing, 1);
       clipboardHistory.unshift(text);
-      if (clipboardHistory.length > 5) clipboardHistory.length = 5;
+      if (clipboardHistory.length > 8) clipboardHistory.length = 8;
+      localStorage.setItem("shiftclip_clipboard_history", JSON.stringify(clipboardHistory));
+      renderClipboardBar();
     }
   } catch (_) {}
 }
 setInterval(pollClipboard, 1500);
 pollClipboard();
+renderClipboardBar();
 
-function renderClipboardFlap() {
-  const dot = document.getElementById("clipboard-dot");
+function renderClipboardBar() {
+  if (!clipboardFlapList) return;
   clipboardFlapList.innerHTML = "";
   if (clipboardHistory.length === 0) {
-    if (dot) dot.classList.add("hidden");
-    clipboardFlapList.innerHTML = `<li class="px-3 py-2.5 text-[11px] text-gray-400 dark:text-white/30 text-center">Nothing copied yet.</li>`;
+    clipboardFlapList.innerHTML = `<span class="text-[10px] text-gray-400 dark:text-white/20 whitespace-nowrap">No clipboard history</span>`;
     return;
   }
-  if (dot) dot.classList.remove("hidden");
-  clipboardHistory.forEach((entry, idx) => {
-    const li = document.createElement("li");
-    li.className =
-      "flex items-center gap-2 px-3 py-1.5 text-[12px] text-gray-700 dark:text-white/80 hover:bg-primary/10 dark:hover:bg-primary/10 hover:text-primary cursor-pointer group" +
-      (idx === 0 ? "" : " border-t border-gray-100 dark:border-white/5");
-    li.innerHTML = `
-      <span class="w-4 h-4 flex-shrink-0 flex items-center justify-center rounded-full bg-gray-100 dark:bg-white/10 text-[9px] font-bold text-gray-400 dark:text-white/40 group-hover:bg-primary group-hover:text-white transition-colors">${idx + 1}</span>
-      <span class="truncate flex-1">${entry.replace(/</g, "&lt;")}</span>
-    `;
-    li.title = entry;
-    li.addEventListener("click", () => {
-      navigator.clipboard.writeText(entry).then(() => {
-        showToast("Copied");
-        clipboardFlap.classList.add("hidden");
-      });
+  clipboardHistory.forEach((entry) => {
+    const chip = document.createElement("button");
+    chip.className =
+      "flex-shrink-0 max-w-[120px] px-2 py-0.5 text-[10px] text-gray-500 dark:text-white/50 bg-gray-200/80 dark:bg-white/5 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15 dark:hover:text-primary border border-transparent hover:border-primary/20 rounded-full truncate transition-all";
+    chip.textContent = entry.replace(/\n/g, " ");
+    chip.title = entry;
+    chip.addEventListener("click", () => {
+      navigator.clipboard.writeText(entry).then(() => showToast("Copied"));
     });
-    clipboardFlapList.appendChild(li);
+    clipboardFlapList.appendChild(chip);
   });
 }
-
-if (clipboardFlapBtn) {
-  clipboardFlapBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const isHidden = clipboardFlap.classList.contains("hidden");
-    if (isHidden) {
-      renderClipboardFlap();
-      clipboardFlap.classList.remove("hidden");
-    } else {
-      clipboardFlap.classList.add("hidden");
-    }
-  });
-}
-
-document.addEventListener("click", () => {
-  if (clipboardFlap) clipboardFlap.classList.add("hidden");
-});
 
 // Font Size Slider
 const fontSizeSlider = document.getElementById("font-size-slider");
@@ -325,7 +299,7 @@ function showTooltip(element, text) {
   const tooltipRect = customTooltip.getBoundingClientRect();
 
   let top = rect.bottom + 4;
-  let left = rect.left;
+  let left = rect.left+ rect.width / 3;
 
   // If it reaches the right side, shift it left to stay visible
   if (left + tooltipRect.width > window.innerWidth) {
@@ -1138,73 +1112,69 @@ function renderFavorites() {
 
   const fragment = document.createDocumentFragment();
 
-  // insertBeforePath: path of the item this drop zone is before, or null for trailing
-  function makeFavDropZone(insertBeforePath) {
-    const dropZone = document.createElement("div");
-    dropZone.className = "drop-zone w-3 self-stretch flex justify-center items-center cursor-grab";
-    const line = document.createElement("div");
-    line.className = "w-0.5 bg-white opacity-0 transition-opacity h-full min-h-[28px]";
-    dropZone.appendChild(line);
-
-    dropZone.addEventListener("dragover", (e) => {
-      if (isLocked) return;
-      e.preventDefault();
-      e.stopPropagation();
-      line.style.opacity = "1";
-    });
-
-    dropZone.addEventListener("dragleave", () => {
-      line.style.opacity = "0";
-    });
-
-    dropZone.addEventListener("drop", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      line.style.opacity = "0";
-      if (isLocked) return;
-      try {
-        const data = JSON.parse(e.dataTransfer.getData("text/plain"));
-        if (data.type === "favorite" && data.path) {
-          const sourceIdx = favoritesOrder.findIndex(p => arraysEqual(p, data.path));
-          if (sourceIdx === -1) return;
-          // Remove the source
-          favoritesOrder.splice(sourceIdx, 1);
-          // Find where to insert now (after removal)
-          let insertIdx;
-          if (insertBeforePath === null) {
-            insertIdx = favoritesOrder.length;
-          } else {
-            insertIdx = favoritesOrder.findIndex(p => arraysEqual(p, insertBeforePath));
-            if (insertIdx === -1) insertIdx = favoritesOrder.length;
-          }
-          favoritesOrder.splice(insertIdx, 0, data.path);
-          localStorage.setItem(
-            "shiftclip_favorites_order",
-            JSON.stringify(favoritesOrder),
-          );
-          renderFavorites();
-        }
-      } catch (err) {
-        console.error("Drop error", err);
-      }
-    });
-
-    return dropZone;
+  function reorderFav(sourcePath, targetPath, insertAfter) {
+    const sourceIdx = favoritesOrder.findIndex(p => arraysEqual(p, sourcePath));
+    if (sourceIdx === -1) return;
+    favoritesOrder.splice(sourceIdx, 1);
+    let targetIdx = favoritesOrder.findIndex(p => arraysEqual(p, targetPath));
+    if (targetIdx === -1) targetIdx = favoritesOrder.length - 1;
+    favoritesOrder.splice(insertAfter ? targetIdx + 1 : targetIdx, 0, sourcePath);
+    localStorage.setItem("shiftclip_favorites_order", JSON.stringify(favoritesOrder));
+    renderFavorites();
   }
 
   favoriteData.forEach(({ item: clip, path }) => {
-    fragment.appendChild(makeFavDropZone(path));
-
     const clipWrapper = document.createElement("div");
     clipWrapper.className =
-      "relative flex items-center bg-white dark:bg-black/20 border border-gray-300 dark:border-white/10 rounded-[15px] flex-shrink-0 my-1";
+      "relative flex items-center bg-white dark:bg-black/20 border-2 border-gray-300 dark:border-white/10 rounded-[15px] flex-shrink-0 m-1 transition-all";
     clipWrapper.draggable = !isLocked;
 
     clipWrapper.addEventListener("dragstart", (e) => {
+      clipWrapper.style.opacity = "0.4";
+      e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData(
         "text/plain",
         JSON.stringify({ type: "favorite", path }),
       );
+    });
+
+    clipWrapper.addEventListener("dragend", () => {
+      clipWrapper.style.opacity = "";
+      clipWrapper.style.borderLeftColor = "";
+      clipWrapper.style.borderRightColor = "";
+    });
+
+    clipWrapper.addEventListener("dragover", (e) => {
+      if (isLocked) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = clipWrapper.getBoundingClientRect();
+      const isRight = e.clientX > rect.left + rect.width / 2;
+      clipWrapper.style.borderLeftColor = isRight ? "" : "#007aff";
+      clipWrapper.style.borderRightColor = isRight ? "#007aff" : "";
+    });
+
+    clipWrapper.addEventListener("dragleave", () => {
+      clipWrapper.style.borderLeftColor = "";
+      clipWrapper.style.borderRightColor = "";
+    });
+
+    clipWrapper.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clipWrapper.style.borderLeftColor = "";
+      clipWrapper.style.borderRightColor = "";
+      if (isLocked) return;
+      try {
+        const data = JSON.parse(e.dataTransfer.getData("text/plain"));
+        if (data.type === "favorite" && data.path && !arraysEqual(data.path, path)) {
+          const rect = clipWrapper.getBoundingClientRect();
+          const insertAfter = e.clientX > rect.left + rect.width / 2;
+          reorderFav(data.path, path, insertAfter);
+        }
+      } catch (err) {
+        console.error("Drop error", err);
+      }
     });
 
     const clipButton = document.createElement("button");
@@ -1304,7 +1274,7 @@ function renderColumns() {
       renderColumn(currentItems, depth, depth === activeDepth);
     } else if (selectedItem && selectedItem.type === "clip") {
       // Update preview
-      previewPanel.innerHTML = `<div class="p-4 w-full h-full overflow-auto text-left"><pre class="text-[15px] text-gray-800 dark:text-white/80 font-mono whitespace-pre-wrap">${selectedItem.description || selectedItem.content || ""}</pre></div>`;
+      previewPanel.innerHTML = `<div class="p-4 w-full h-full overflow-auto text-left"><pre class="text-[12px] leading-relaxed text-gray-800 dark:text-white/80 whitespace-pre-wrap" style="font-family: 'Work Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">${selectedItem.description || selectedItem.content || ""}</pre></div>`;
       isClipSelected = true;
       break;
     }
