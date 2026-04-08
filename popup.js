@@ -1095,13 +1095,20 @@ function renderFavorites() {
     );
   }
 
+  // Sort favoriteData by favoritesOrder, then rebuild favoritesOrder
+  // to sync with current paths (paths shift when filesystem changes)
   favoriteData.sort((a, b) => {
     const aIndex = favoritesOrder.findIndex(p => arraysEqual(p, a.path));
     const bIndex = favoritesOrder.findIndex(p => arraysEqual(p, b.path));
+    if (aIndex === -1 && bIndex === -1) return 0;
     if (aIndex === -1) return 1;
     if (bIndex === -1) return -1;
     return aIndex - bIndex;
   });
+
+  // Rebuild favoritesOrder from the now-sorted data with fresh paths
+  favoritesOrder = favoriteData.map(f => f.path);
+  localStorage.setItem("shiftclip_favorites_order", JSON.stringify(favoritesOrder));
 
   favoritesContainer.innerHTML = "";
 
@@ -1112,18 +1119,8 @@ function renderFavorites() {
 
   const fragment = document.createDocumentFragment();
 
-  function reorderFav(sourcePath, targetPath, insertAfter) {
-    const sourceIdx = favoritesOrder.findIndex(p => arraysEqual(p, sourcePath));
-    if (sourceIdx === -1) return;
-    favoritesOrder.splice(sourceIdx, 1);
-    let targetIdx = favoritesOrder.findIndex(p => arraysEqual(p, targetPath));
-    if (targetIdx === -1) targetIdx = favoritesOrder.length - 1;
-    favoritesOrder.splice(insertAfter ? targetIdx + 1 : targetIdx, 0, sourcePath);
-    localStorage.setItem("shiftclip_favorites_order", JSON.stringify(favoritesOrder));
-    renderFavorites();
-  }
-
-  favoriteData.forEach(({ item: clip, path }) => {
+  // Use simple integer indices into favoritesOrder for drag — no stale path issues
+  favoriteData.forEach(({ item: clip, path }, favIdx) => {
     const clipWrapper = document.createElement("div");
     clipWrapper.className =
       "relative flex items-center bg-white dark:bg-black/20 border-2 border-gray-300 dark:border-white/10 rounded-[15px] flex-shrink-0 m-1 transition-all";
@@ -1134,7 +1131,7 @@ function renderFavorites() {
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData(
         "text/plain",
-        JSON.stringify({ type: "favorite", path }),
+        JSON.stringify({ type: "favorite", favIdx }),
       );
     });
 
@@ -1167,10 +1164,19 @@ function renderFavorites() {
       if (isLocked) return;
       try {
         const data = JSON.parse(e.dataTransfer.getData("text/plain"));
-        if (data.type === "favorite" && data.path && !arraysEqual(data.path, path)) {
+        if (data.type === "favorite" && typeof data.favIdx === "number" && data.favIdx !== favIdx) {
           const rect = clipWrapper.getBoundingClientRect();
-          const insertAfter = e.clientX > rect.left + rect.width / 2;
-          reorderFav(data.path, path, insertAfter);
+          const isRight = e.clientX > rect.left + rect.width / 2;
+          // Remove source from order
+          const movedPath = favoritesOrder.splice(data.favIdx, 1)[0];
+          // Recalculate target index after removal
+          let insertAt = favIdx;
+          if (data.favIdx < favIdx) insertAt--;
+          if (isRight) insertAt++;
+          insertAt = Math.max(0, Math.min(insertAt, favoritesOrder.length));
+          favoritesOrder.splice(insertAt, 0, movedPath);
+          localStorage.setItem("shiftclip_favorites_order", JSON.stringify(favoritesOrder));
+          renderFavorites();
         }
       } catch (err) {
         console.error("Drop error", err);
