@@ -146,8 +146,21 @@
       #search-input {
         font-size: 15px !important;
       }
-      #clipboard-history-bar {
-        scroll-behavior: smooth;
+      html.fullscreen body > div {
+        height: 100vh;
+      }
+      html.fullscreen #columns-container {
+        height: auto !important;
+        flex: 1;
+      }
+      /* Responsive header: hide individual buttons, show collapsed "+" dropdown */
+      #add-plus-btn { display: none; }
+      #add-plus-menu { display: none; }
+      #bmc-settings-item { display: none; }
+      @media (max-width: 640px) {
+        #add-folder-btn, #add-clip-btn, #bmc-link { display: none !important; }
+        #add-plus-btn { display: flex !important; }
+        #bmc-settings-item { display: flex !important; }
       }
     </style>
   </head>
@@ -176,6 +189,7 @@
         </div>
         <div class="flex-1 flex justify-end items-center gap-3">
           <a
+            id="bmc-link"
             href="https://buymeacoffee.com/rakshitranpariya"
             target="_blank"
             rel="noopener noreferrer"
@@ -231,6 +245,48 @@
               <line x1="9" y1="15" x2="15" y2="15"></line>
             </svg>
           </button>
+
+          <!-- Collapsed "+" dropdown for narrow screens -->
+          <div class="relative">
+            <button
+              id="add-plus-btn"
+              class="p-0 hover:bg-gray-200 dark:hover:bg-white/10 rounded-[25px] h-7 w-7 text-gray-500 dark:text-white/60 items-center justify-center transition-colors"
+              title="Add"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <div
+              id="add-plus-menu"
+              class="hidden absolute right-0 top-full mt-1 w-40 bg-white dark:bg-[#2d2d2d] border border-gray-200 dark:border-white/10 rounded-[15px] shadow-lg z-50 py-1 flex-col"
+            >
+              <button
+                id="add-folder-btn-collapsed"
+                class="w-full text-left px-3 py-2 text-[13px] text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-white/10 flex items-center gap-2 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                  <line x1="12" y1="11" x2="12" y2="17"></line>
+                  <line x1="9" y1="14" x2="15" y2="14"></line>
+                </svg>
+                <span>New Folder</span>
+              </button>
+              <button
+                id="add-clip-btn-collapsed"
+                class="w-full text-left px-3 py-2 text-[13px] text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-white/10 flex items-center gap-2 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="12" y1="18" x2="12" y2="12"></line>
+                  <line x1="9" y1="15" x2="15" y2="15"></line>
+                </svg>
+                <span>New Clip</span>
+              </button>
+            </div>
+          </div>
 
           <div class="relative w-64">
             <input
@@ -388,6 +444,20 @@
                 </svg>
                 <span>Toggle Theme</span>
               </button>
+              <div
+                id="bmc-settings-item"
+                class="border-t border-gray-200 dark:border-white/10 mt-1 pt-1"
+              >
+                <a
+                  href="https://buymeacoffee.com/rakshitranpariya"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="w-full text-left px-3 py-2 text-[13px] text-gray-800 dark:text-white hover:bg-gray-100 dark:hover:bg-white/10 flex items-center gap-2 transition-colors"
+                >
+                  <img src="./assets/buymeacoffee.png" class="h-4 w-4 rounded-full" alt="" />
+                  <span>Buy me a coffee</span>
+                </a>
+              </div>
             </div>
           </div>
           <input

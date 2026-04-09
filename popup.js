@@ -83,7 +83,7 @@ async function pollClipboard() {
       const existing = clipboardHistory.indexOf(text);
       if (existing !== -1) clipboardHistory.splice(existing, 1);
       clipboardHistory.unshift(text);
-      if (clipboardHistory.length > 8) clipboardHistory.length = 8;
+      if (clipboardHistory.length > 20) clipboardHistory.length = 12;
       localStorage.setItem("shiftclip_clipboard_history", JSON.stringify(clipboardHistory));
       renderClipboardBar();
     }
@@ -243,6 +243,39 @@ if (settingsBtn && settingsMenu) {
 // Dropdown functionality
 const addFolderBtn = document.getElementById("add-folder-btn");
 const addClipBtn = document.getElementById("add-clip-btn");
+
+// Collapsed "+" dropdown for narrow screens
+const addPlusBtn = document.getElementById("add-plus-btn");
+const addPlusMenu = document.getElementById("add-plus-menu");
+const addFolderBtnCollapsed = document.getElementById("add-folder-btn-collapsed");
+const addClipBtnCollapsed = document.getElementById("add-clip-btn-collapsed");
+
+if (addPlusBtn && addPlusMenu) {
+  addPlusBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    addPlusMenu.style.display = addPlusMenu.style.display === "flex" ? "none" : "flex";
+  });
+  addPlusMenu.addEventListener("mouseleave", () => {
+    addPlusMenu.style.display = "none";
+  });
+  document.addEventListener("click", (e) => {
+    if (!addPlusBtn.contains(e.target) && !addPlusMenu.contains(e.target)) {
+      addPlusMenu.style.display = "none";
+    }
+  });
+}
+if (addFolderBtnCollapsed) {
+  addFolderBtnCollapsed.addEventListener("click", () => {
+    addPlusMenu.style.display = "none";
+    addFolderBtn.click();
+  });
+}
+if (addClipBtnCollapsed) {
+  addClipBtnCollapsed.addEventListener("click", () => {
+    addPlusMenu.style.display = "none";
+    addClipBtn.click();
+  });
+}
 
 // Modal elements
 const clipModal = document.getElementById("clip-modal");
